@@ -46,7 +46,8 @@ export async function uploadFile(
         Authorization: `Bearer ${accessToken}`,
         ...form.getHeaders(),
       },
-      body: form as unknown as BodyInit,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      body: form as any,
     },
   );
 
