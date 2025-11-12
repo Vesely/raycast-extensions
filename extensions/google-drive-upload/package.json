@@ -16,12 +16,14 @@
     {
       "name": "upload-file",
       "title": "Upload to Google Drive",
+      "subtitle": "Google Drive Upload",
       "description": "Upload selected files or folders from Finder to Google Drive with folder picker",
       "mode": "view"
     },
     {
       "name": "manage-accounts",
       "title": "Manage Google Drive Accounts",
+      "subtitle": "Google Drive Upload",
       "description": "Add, remove, or switch between Google Drive accounts",
       "mode": "view",
       "entrypoint": "src/manage-accounts.tsx"

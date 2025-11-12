@@ -346,9 +346,9 @@ export default function Command() {
       }
 
       // Store last used account
-      if (account.id && typeof account.id === "string") {
+      if (account.id) {
         try {
-          await LocalStorage.setItem(LAST_USED_ACCOUNT_KEY, String(account.id));
+          await LocalStorage.setItem(LAST_USED_ACCOUNT_KEY, account.id);
         } catch {
           // Ignore storage errors
         }
