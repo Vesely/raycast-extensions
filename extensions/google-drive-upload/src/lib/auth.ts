@@ -5,10 +5,6 @@ const STORAGE_KEY = "google-drive-accounts";
 
 const DEFAULT_OAUTH_CLIENT_ID = "389780480859-1in9j915akqi6sbk2ad8nnd9apj9spf1.apps.googleusercontent.com";
 
-interface Preferences {
-  oauthClientId?: string;
-}
-
 function getClientId(): string {
   const preferences = getPreferenceValues<Preferences>();
   return preferences.oauthClientId?.trim() || DEFAULT_OAUTH_CLIENT_ID;
@@ -66,7 +62,19 @@ async function refreshTokens(refreshToken: string): Promise<OAuth.TokenResponse>
   if (!response.ok) {
     const errorText = await response.text();
     console.error("refresh tokens error:", errorText);
-    throw new Error("Failed to refresh access token. Please re-authenticate your account.");
+
+    // Check for specific error types
+    let errorMessage = "Failed to refresh access token. Please re-authenticate your account.";
+    try {
+      const errorData = JSON.parse(errorText);
+      if (errorData.error === "invalid_grant" || errorData.error === "invalid_token") {
+        errorMessage = "Authentication expired. Please re-authenticate your account.";
+      }
+    } catch {
+      // If we can't parse the error, use the default message
+    }
+
+    throw new Error(errorMessage);
   }
 
   const tokenResponse = (await response.json()) as OAuth.TokenResponse;
@@ -195,12 +203,50 @@ export async function getValidAccessToken(account: GoogleAccount): Promise<strin
 
   if (tokenSet?.accessToken) {
     if (tokenSet.refreshToken && tokenSet.isExpired()) {
-      await client.setTokens(await refreshTokens(tokenSet.refreshToken));
-      const updatedTokenSet = await client.getTokens();
-      return updatedTokenSet?.accessToken || "";
+      try {
+        const refreshedTokens = await refreshTokens(tokenSet.refreshToken);
+        await client.setTokens(refreshedTokens);
+        const updatedTokenSet = await client.getTokens();
+        return updatedTokenSet?.accessToken || "";
+      } catch (error) {
+        // Refresh token is invalid or expired - need to re-authenticate
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("invalid_grant") || errorMessage.includes("invalid_token")) {
+          throw new Error("AUTHENTICATION_EXPIRED");
+        }
+        throw error;
+      }
     }
     return tokenSet.accessToken;
   }
 
-  throw new Error("No valid access token available. Please re-authenticate.");
+  // No tokens in client - might need to re-authenticate
+  throw new Error("AUTHENTICATION_EXPIRED");
+}
+
+export async function reAuthenticateAccount(account: GoogleAccount): Promise<GoogleAccount> {
+  // Create a new provider ID for re-authentication
+  const providerId = `google-drive-${Date.now()}`;
+  const client = createOAuthClient(providerId);
+  const token = await authorize(client);
+  const userInfo = await getUserInfo(token);
+
+  // Update the existing account with new tokens
+  const stored = await getStoredAccounts();
+  const accountIndex = stored.accounts.findIndex((a) => a.id === account.id);
+
+  if (accountIndex >= 0) {
+    stored.accounts[accountIndex] = {
+      id: account.id, // Keep the same account ID
+      email: userInfo.email,
+      name: userInfo.name,
+      accessToken: token,
+      providerId,
+    };
+    await LocalStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    return stored.accounts[accountIndex];
+  }
+
+  // If account not found, add it as new
+  return await addAccount(token, providerId);
 }

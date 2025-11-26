@@ -52,6 +52,10 @@ export async function uploadFile(
   );
 
   if (!response.ok) {
+    // Check for authentication errors
+    if (response.status === 401) {
+      throw new Error("AUTHENTICATION_EXPIRED");
+    }
     const errorText = await response.text();
     throw new Error(`Failed to upload file: ${response.status} ${errorText}`);
   }
@@ -84,6 +88,10 @@ export async function createFolder(
   });
 
   if (!response.ok) {
+    // Check for authentication errors
+    if (response.status === 401) {
+      throw new Error("AUTHENTICATION_EXPIRED");
+    }
     const errorText = await response.text();
     throw new Error(`Failed to create folder: ${response.status} ${errorText}`);
   }
@@ -113,6 +121,10 @@ export async function listFolders(accessToken: string): Promise<GoogleDriveFolde
 
     if (!response.ok) {
       const errorText = await response.text();
+      // Check for authentication errors
+      if (response.status === 401) {
+        throw new Error("AUTHENTICATION_EXPIRED");
+      }
       throw new Error(`Failed to list folders: ${response.status} ${errorText}`);
     }
 
@@ -183,6 +195,9 @@ export async function ensureFolder(
     if (data.files && data.files.length > 0) {
       return data.files[0];
     }
+  } else if (searchResponse.status === 401) {
+    // Check for authentication errors
+    throw new Error("AUTHENTICATION_EXPIRED");
   }
 
   // Folder doesn't exist, create it

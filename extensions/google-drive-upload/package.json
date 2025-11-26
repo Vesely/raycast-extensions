@@ -1,5 +1,6 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
+  "version": "1.0.1",
   "name": "google-drive-upload",
   "title": "Google Drive Upload",
   "description": "Upload files and folders to Google Drive directly from Finder. Powered by Google Drive API.",
@@ -16,17 +17,14 @@
     {
       "name": "upload-file",
       "title": "Upload to Google Drive",
-      "subtitle": "Google Drive Upload",
       "description": "Upload selected files or folders from Finder to Google Drive with folder picker",
       "mode": "view"
     },
     {
       "name": "manage-accounts",
       "title": "Manage Google Drive Accounts",
-      "subtitle": "Google Drive Upload",
       "description": "Add, remove, or switch between Google Drive accounts",
-      "mode": "view",
-      "entrypoint": "src/manage-accounts.tsx"
+      "mode": "view"
     }
   ],
   "preferences": [

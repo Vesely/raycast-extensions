@@ -21,6 +21,7 @@ import {
   getDefaultAccount,
   getValidAccessToken,
   setDefaultAccount,
+  reAuthenticateAccount,
 } from "./lib/auth";
 import { uploadFileWithRetry, ensureFolder, listFolders, buildFolderPath } from "./lib/google-drive";
 import {
@@ -52,6 +53,7 @@ export default function Command() {
   const [error, setError] = useState<string | undefined>();
   const [defaultFolder, setDefaultFolderState] = useState<DefaultFolder | undefined>();
   const [isFoldersLoading, setIsFoldersLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -134,9 +136,6 @@ export default function Command() {
       const defaultFld = await getDefaultFolder(acc.id);
       setDefaultFolderState(defaultFld);
 
-      // Stop loading state immediately so "My Drive" is available
-      setIsLoading(false);
-
       // Start background folder loading
       setIsFoldersLoading(true);
 
@@ -159,10 +158,56 @@ export default function Command() {
 
       setFolders(foldersWithPaths);
       setIsFoldersLoading(false);
+      // Stop loading state after folders are fully loaded
+      setIsLoading(false);
     } catch (err) {
-      setError((err as Error).message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+
+      // Check if it's an authentication error
+      if (errorMessage === "AUTHENTICATION_EXPIRED" || errorMessage.includes("401")) {
+        setError(`AUTHENTICATION_EXPIRED:${acc.id}`);
+      } else {
+        setError(errorMessage);
+      }
+
       setIsLoading(false);
       setIsFoldersLoading(false);
+    }
+  }
+
+  async function handleReAuthenticate(accountId: string) {
+    const accountToReAuth = accounts.find((a) => a.id === accountId);
+    if (!accountToReAuth) return;
+
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "Re-authenticating...",
+      message: `Signing in ${accountToReAuth.email} again`,
+    });
+
+    try {
+      const reAuthAccount = await reAuthenticateAccount(accountToReAuth);
+
+      // Update accounts list
+      const updatedAccounts = await getAccounts();
+      setAccounts(updatedAccounts);
+
+      // Update current account if it's the one being re-authenticated
+      if (account?.id === accountId) {
+        setAccount(reAuthAccount);
+      }
+
+      toast.style = Toast.Style.Success;
+      toast.title = "Re-authenticated";
+      toast.message = reAuthAccount.email;
+
+      // Clear error and reload folders
+      setError(undefined);
+      await loadFolders(reAuthAccount);
+    } catch (error) {
+      toast.style = Toast.Style.Failure;
+      toast.title = "Re-authentication failed";
+      toast.message = (error as Error).message;
     }
   }
 
@@ -261,6 +306,7 @@ export default function Command() {
   async function handleUpload(folderId: string, folderName: string) {
     if (!account) return;
 
+    setIsUploading(true);
     const toast = await showToast({
       style: Toast.Style.Animated,
       title: "Uploading...",
@@ -401,24 +447,28 @@ export default function Command() {
       }
     } catch (err) {
       try {
-        toast.style = Toast.Style.Failure;
-        toast.title = "Upload failed";
         const errorMessage = err instanceof Error ? err.message : String(err);
-        if (errorMessage && errorMessage.trim()) {
-          toast.message = errorMessage;
+
+        // Check if it's an authentication error
+        if (errorMessage === "AUTHENTICATION_EXPIRED" || errorMessage.includes("401")) {
+          toast.style = Toast.Style.Failure;
+          toast.title = "Authentication expired";
+          toast.message = `Please sign in again for ${account.email}`;
+          // Set error state to show re-authentication option
+          setError(`AUTHENTICATION_EXPIRED:${account.id}`);
+        } else {
+          toast.style = Toast.Style.Failure;
+          toast.title = "Upload failed";
+          if (errorMessage && errorMessage.trim()) {
+            toast.message = errorMessage;
+          }
         }
       } catch {
         // Ignore toast errors
       }
+    } finally {
+      setIsUploading(false);
     }
-  }
-
-  if (error) {
-    return (
-      <List>
-        <List.EmptyView title="Error" description={error} icon={{ source: Icon.XMarkCircle, tintColor: Color.Red }} />
-      </List>
-    );
   }
 
   // Load default account ID when accounts change
@@ -432,11 +482,55 @@ export default function Command() {
     }
   }, [accounts]);
 
+  if (error) {
+    const isAuthError = error.startsWith("AUTHENTICATION_EXPIRED:");
+    const accountId = isAuthError ? error.split(":")[1] : undefined;
+    const authAccount = accountId ? accounts.find((a) => a.id === accountId) : undefined;
+
+    return (
+      <List>
+        <List.EmptyView
+          title="Authentication Expired"
+          description={
+            authAccount
+              ? `Your login for ${authAccount.email} has expired. Please sign in again to continue.`
+              : "Your login has expired. Please sign in again to continue."
+          }
+          icon={{ source: Icon.XMarkCircle, tintColor: Color.Red }}
+          actions={
+            isAuthError && accountId ? (
+              <ActionPanel>
+                <Action
+                  title="Sign in Again"
+                  icon={{ source: Icon.ArrowClockwise, tintColor: Color.Blue }}
+                  onAction={() => handleReAuthenticate(accountId)}
+                />
+                <Action
+                  title="Manage Accounts"
+                  icon={{ source: Icon.Gear, tintColor: Color.SecondaryText }}
+                  onAction={handleOpenManageAccounts}
+                />
+              </ActionPanel>
+            ) : (
+              <ActionPanel>
+                <Action
+                  title="Manage Accounts"
+                  icon={{ source: Icon.Gear, tintColor: Color.Blue }}
+                  onAction={handleOpenManageAccounts}
+                />
+              </ActionPanel>
+            )
+          }
+        />
+      </List>
+    );
+  }
+
   const totalSize = getTotalSize(files);
 
   return (
     <List
-      isLoading={isLoading}
+      isLoading={isLoading || isFoldersLoading || isUploading}
       navigationTitle={`Upload ${files.length} file${files.length > 1 ? "s" : ""} (${formatFileSize(totalSize)})`}
       searchBarPlaceholder={showAccountSelection ? "Search accounts..." : "Search folders..."}
     >
